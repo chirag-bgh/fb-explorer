@@ -1,0 +1,26 @@
+[package]
+name = "fb-expolorer"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+alloy = { version = "0.8", features = ["full"] }
+alloy-eips = "0.8"
+alloy-primitives = "0.8"
+alloy-rpc-types-engine = "0.8"
+alloy-serde = "0.8"
+alloy-rpc-types = "0.8"
+eyre = "0.6"
+tokio = { version = "1", features = ["full"] }
+futures-util = "0.3"
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+url = "2.5"
+tokio-tungstenite = "0.24"
+tracing = "0.1"
+tracing-subscriber = "0.3"
+brotli = "7.0"
+axum = "0.7"
+tower-http = { version = "0.5", features = ["fs", "cors"] }
+tower = "0.4"
+hex = "0.4"
