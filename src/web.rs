@@ -33,14 +33,21 @@ pub struct FlashblockSummary {
 }
 
 pub async fn start_web_server() -> Result<(), Box<dyn std::error::Error>> {
+    // Load environment variables from .env file
+    dotenvy::dotenv().ok();
+
+    // Get port from environment variable or use default
+    let port = std::env::var("PORT").unwrap_or_else(|_| "8080".to_string());
+    let addr = format!("0.0.0.0:{}", port);
+
     let app = Router::new()
         .route("/", get(serve_dashboard))
         .route("/api/blocks", get(get_blocks))
         .route("/api/blocks/:block_number", get(get_block_details))
         .layer(CorsLayer::permissive());
 
-    let listener = tokio::net::TcpListener::bind("0.0.0.0:8080").await?;
-    println!("Dashboard server running on http://localhost:8080");
+    let listener = tokio::net::TcpListener::bind(&addr).await?;
+    println!("Dashboard server running on http://localhost:{}", port);
 
     axum::serve(listener, app).await?;
 
