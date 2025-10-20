@@ -10,6 +10,8 @@ alloy-primitives = "0.8"
 alloy-rpc-types-engine = "0.8"
 alloy-serde = "0.8"
 alloy-rpc-types = "0.8"
+alloy-rpc-types-eth = "0.8"
+alloy-transport-http = { version = "0.8", features = ["hyper", "jwt-auth"] }
 eyre = "0.6"
 tokio = { version = "1", features = ["full"] }
 futures-util = "0.3"
@@ -25,3 +27,5 @@ tower-http = { version = "0.5", features = ["fs", "cors"] }
 tower = "0.4"
 hex = "0.4"
 dotenvy = "0.15"
+http-body-util = "0.1"
+hyper-util = { version = "0.1", features = ["client-legacy", "tokio"] }
