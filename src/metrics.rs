@@ -18,7 +18,7 @@ impl Counter {
         self.value.fetch_add(delta, Ordering::Relaxed);
     }
 
-    pub fn get(&self) -> u64 {
+    pub fn _get(&self) -> u64 {
         self.value.load(Ordering::Relaxed)
     }
 }

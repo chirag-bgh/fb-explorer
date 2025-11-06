@@ -2,12 +2,14 @@ mod metrics;
 mod payload;
 mod subscriber;
 mod web;
+mod spammer;
 
 use alloy::providers::{Provider, ProviderBuilder, WsConnect};
 use alloy::rpc::types::BlockTransactionsKind;
 use eyre::Result;
 use futures_util::StreamExt;
 use serde::Serialize;
+use spammer::TxSpammer;
 use std::fs;
 use std::sync::Arc;
 use std::time::Duration;
@@ -44,7 +46,9 @@ struct BlockTransactions {
 }
 
 // Handler for flashblocks
-struct FlashblockHandler;
+struct FlashblockHandler {
+    spammer: Option<Arc<TxSpammer>>,
+}
 
 impl FlashblocksReceiver for FlashblockHandler {
     fn on_flashblock_received(&self, flashblock: FlashBlock) {
@@ -73,6 +77,15 @@ impl FlashblocksReceiver for FlashblockHandler {
             }
             Err(e) => eprintln!("❌ Error serializing flashblock data: {}\n", e),
         }
+
+        // Trigger transaction spammer if enabled
+        if let Some(spammer) = &self.spammer {
+            let spammer = Arc::clone(spammer);
+            let trigger_info = format!("flashblock {}:{}", block_number, flashblock.index);
+            tokio::spawn(async move {
+                spammer.spam_transactions(&trigger_info, 5).await;
+            });
+        }
     }
 }
 
@@ -80,6 +93,32 @@ impl FlashblocksReceiver for FlashblockHandler {
 async fn main() -> Result<()> {
     // Initialize tracing
     tracing_subscriber::fmt::init();
+    dotenvy::dotenv().ok();
+
+    let spammer = if std::env::var("ENABLE_TX_SPAM")
+        .unwrap_or_else(|_| "false".to_string())
+        .to_lowercase() == "true"
+    {
+        let spam_rpc_url = std::env::var("SPAM_RPC_URL")
+            .unwrap_or_else(|_| "http://localhost:8545".to_string());
+        let private_key = std::env::var("SPAM_PRIVATE_KEY")
+            .expect("SPAM_PRIVATE_KEY must be set when ENABLE_TX_SPAM=true");
+        let jwt_secret = std::env::var("JWT_SECRET")
+            .expect("JWT_SECRET must be set when ENABLE_TX_SPAM=true");
+
+        match TxSpammer::new(spam_rpc_url, private_key, jwt_secret).await {
+            Ok(spammer) => {
+                println!("✅ Transaction spammer initialized successfully");
+                Some(Arc::new(spammer))
+            }
+            Err(e) => {
+                eprintln!("❌ Failed to initialize transaction spammer: {}", e);
+                None
+            }
+        }
+    } else {
+        None
+    };
 
     // Start web dashboard server
     tokio::spawn(async {
@@ -95,7 +134,9 @@ async fn main() -> Result<()> {
     println!("Starting flashblocks subscription to: {}", flashblock_ws_url);
     println!("Note: Set FLASHBLOCK_WS_URL environment variable to use a different endpoint");
 
-    let handler = Arc::new(FlashblockHandler);
+    let handler = Arc::new(FlashblockHandler {
+        spammer: spammer.clone(),
+    });
     let mut flashblocks_subscriber = FlashblocksSubscriber::new(
         handler.clone(),
         Url::parse(&flashblock_ws_url)?,
@@ -150,9 +191,11 @@ async fn main() -> Result<()> {
     let mut stream = sub.into_stream();
 
     println!("Awaiting block headers...");
+    println!("Press Ctrl+C to stop...\n");
 
     // Process blocks in the main task
-    let handle = tokio::spawn(async move {
+    let spammer_clone = spammer.clone();
+    let block_task = tokio::spawn(async move {
         while let Some(header) = stream.next().await {
             let block_number = header.number;
             println!("Latest block number: {}", block_number);
@@ -195,6 +238,15 @@ async fn main() -> Result<()> {
                         }
                         Err(e) => eprintln!("Error serializing block data: {}", e),
                     }
+
+                    // Trigger transaction spammer if enabled
+                    if let Some(spammer) = &spammer_clone {
+                        let spammer = Arc::clone(spammer);
+                        let trigger_info = format!("block {}", block_number);
+                        tokio::spawn(async move {
+                            spammer.spam_transactions(&trigger_info, 1).await;
+                        });
+                    }
                 }
                 Ok(None) => {
                     eprintln!("Block {} not found", block_number);
@@ -206,7 +258,20 @@ async fn main() -> Result<()> {
         }
     });
 
-    handle.await?;
+    match tokio::signal::ctrl_c().await {
+        Ok(()) => {
+            println!("\n🛑 Received shutdown signal (Ctrl+C)");
+            println!("Stopping all tasks...");
 
-    Ok(())
+            // Abort the block processing task
+            block_task.abort();
+
+            println!("✅ All tasks stopped. Exiting gracefully.");
+            Ok(())
+        }
+        Err(err) => {
+            eprintln!("Unable to listen for shutdown signal: {}", err);
+            Err(err.into())
+        }
+    }
 }
